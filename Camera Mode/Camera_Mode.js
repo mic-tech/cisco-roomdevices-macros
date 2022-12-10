@@ -6,26 +6,34 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-xapi.event.on('UserInterface Extensions Widget Action', (event) => {
-  if (event.WidgetId == 'widget_cameraMode' && event.Type == 'released') {
-    switch(event.Value) {
-      case 'cmAuto':
-        xapi.command('Video Input SetMainVideoSource', {ConnectorId: ['1', '2'], Layout: 'Equal'})
-        currentMode = 'auto'
-        break
-      case 'cmAudienceOnly':
-        xapi.command('Video Input SetMainVideoSource', {ConnectorId: '1'})
-        currentMode = 'audience'
-        break
-      default:
-        xapi.command('Video Input SetMainVideoSource', {ConnectorId: '2'})
-        currentMode = 'presenter'
-        break
+async function setupEvents() {
+  // on change of video source
+  xapi.Status.Video.Input.MainVideoSource.on(source => {
+    updateUI(source)
+  })
+
+  // on selecting camera mode from UI
+  xapi.event.on('UserInterface Extensions Widget Action', (event) => {
+    if (event.WidgetId == 'widget_cameraMode' && event.Type == 'released') {
+      switch(event.Value) {
+        case 'cmAuto':
+          xapi.command('Video Input SetMainVideoSource', {ConnectorId: ['1', '2'], Layout: 'Equal'})
+          currentMode = 'auto'
+          break
+        case 'cmAudienceOnly':
+          xapi.command('Video Input SetMainVideoSource', {ConnectorId: '1'})
+          currentMode = 'audience'
+          break
+        default:
+          xapi.command('Video Input SetMainVideoSource', {ConnectorId: '2'})
+          currentMode = 'presenter'
+          break
+      }
+      setupPresenterTracking()
+      setupSpeakerTracking()
     }
-    setupPresenterTracking()
-    setupSpeakerTracking()
-  }
-})
+  })
+}
 
 async function setupPresenterTracking() {
   if (currentMode == 'auto' || currentMode == 'presenter') {
@@ -45,6 +53,24 @@ async function setupSpeakerTracking() {
       await xapi.Command.Cameras.SpeakerTrack.Activate()
     }
   }
+}
+
+async function updateUI(currentSource) {
+  switch (currentSource) {
+      case '1':
+        xapi.command('UserInterface Extensions Widget SetValue', {WidgetId: 'widget_cameraMode', Value: 'cmAudienceOnly'})
+        currentMode = 'audience'
+        break
+      case '2':
+        xapi.command('UserInterface Extensions Widget SetValue', {WidgetId: 'widget_cameraMode', Value: 'cmPresenterOnly'})
+        currentMode = 'presenter'
+        break
+      default:
+        //xapi.command('Video Input SetMainVideoSource', {ConnectorId: ['1', '2'], Layout: 'Equal'})
+        xapi.command('UserInterface Extensions Widget SetValue', {WidgetId: 'widget_cameraMode', Value: 'cmAuto'})
+        currentMode = 'auto'
+        break
+    }
 }
 
 async function buildUI() {
@@ -113,27 +139,14 @@ async function buildUI() {
 
 async function init() {
   await buildUI()
-
   const currentMainVideoSource = await xapi.Status.Video.Input.MainVideoSource.get()
-  switch (currentMainVideoSource) {
-    case '1':
-      xapi.command('UserInterface Extensions Widget SetValue', {WidgetId: 'widget_cameraMode', Value: 'cmAudienceOnly'})
-      currentMode = 'audience'
-      break
-    case '2':
-      xapi.command('UserInterface Extensions Widget SetValue', {WidgetId: 'widget_cameraMode', Value: 'cmPresenterOnly'})
-      currentMode = 'presenter'
-      break
-    default:
-      xapi.command('Video Input SetMainVideoSource', {ConnectorId: ['1', '2'], Layout: 'Equal'})
-      xapi.command('UserInterface Extensions Widget SetValue', {WidgetId: 'widget_cameraMode', Value: 'cmAuto'})
-      currentMode = 'auto'
-      break
-  }
+  await updateUI(currentMainVideoSource)
   await sleep(250)
   await setupPresenterTracking()
   await sleep(250)
   await setupSpeakerTracking()
+  await sleep(100)
+  await setupEvents()
 }
 
 init()
